@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/lite/examples/label_image/label_image.h"
+#include "third_party/tensorflow/lite/examples/label_image/label_image.h"
 
 #include <fcntl.h>      // NOLINT(build/include_order)
 #include <getopt.h>     // NOLINT(build/include_order)
@@ -35,15 +35,15 @@ limitations under the License.
 #include <unordered_set>
 #include <vector>
 
-#include "absl/memory/memory.h"
-#include "tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
-#include "tensorflow/lite/examples/label_image/bitmap_helpers.h"
-#include "tensorflow/lite/examples/label_image/get_top_n.h"
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/optional_debug_tools.h"
-#include "tensorflow/lite/profiling/profiler.h"
-#include "tensorflow/lite/string_util.h"
-#include "tensorflow/lite/tools/evaluation/utils.h"
+#include "third_party/absl/memory/memory.h"
+#include "third_party/tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
+#include "third_party/tensorflow/lite/examples/label_image/bitmap_helpers.h"
+#include "third_party/tensorflow/lite/examples/label_image/get_top_n.h"
+#include "third_party/tensorflow/lite/kernels/register.h"
+#include "third_party/tensorflow/lite/optional_debug_tools.h"
+#include "third_party/tensorflow/lite/profiling/profiler.h"
+#include "third_party/tensorflow/lite/string_util.h"
+#include "third_party/tensorflow/lite/tools/evaluation/utils.h"
 
 #define LOG(x) std::cerr
 
@@ -120,6 +120,21 @@ TfLiteStatus ReadLabelsFile(const string& file_name,
   return kTfLiteOk;
 }
 
+TfLiteStatus ReadImagesFile(const string& file_name,
+                             std::vector<string>* result) {
+  std::ifstream file(file_name);
+  if (!file) {
+    LOG(FATAL) << "Images file " << file_name << " not found\n";
+    return kTfLiteError;
+  }
+  result->clear();
+  string line;
+  while (std::getline(file, line)) {
+    result->push_back(line);
+  }
+  return kTfLiteOk;
+}
+
 void PrintProfilingInfo(const profiling::ProfileEvent* e, uint32_t op_index,
                         TfLiteRegistration registration) {
   // output something like
@@ -186,23 +201,6 @@ void RunInference(Settings* s) {
     interpreter->SetNumThreads(s->number_of_threads);
   }
 
-  int image_width = 224;
-  int image_height = 224;
-  int image_channels = 3;
-  std::vector<uint8_t> in = read_bmp(s->input_bmp_name, &image_width,
-                                     &image_height, &image_channels, s);
-
-  int input = interpreter->inputs()[0];
-  if (s->verbose) LOG(INFO) << "input: " << input << "\n";
-
-  const std::vector<int> inputs = interpreter->inputs();
-  const std::vector<int> outputs = interpreter->outputs();
-
-  if (s->verbose) {
-    LOG(INFO) << "number of inputs: " << inputs.size() << "\n";
-    LOG(INFO) << "number of outputs: " << outputs.size() << "\n";
-  }
-
   auto delegates_ = GetDelegates(s);
   for (const auto& delegate : delegates_) {
     if (interpreter->ModifyGraphWithDelegate(delegate.second.get()) !=
@@ -219,6 +217,17 @@ void RunInference(Settings* s) {
 
   if (s->verbose) PrintInterpreterState(interpreter.get());
 
+  const std::vector<int> inputs = interpreter->inputs();
+  const std::vector<int> outputs = interpreter->outputs();
+
+  if (s->verbose) {
+    LOG(INFO) << "number of inputs: " << inputs.size() << "\n";
+    LOG(INFO) << "number of outputs: " << outputs.size() << "\n";
+  }
+
+  int input = interpreter->inputs()[0];
+  if (s->verbose) LOG(INFO) << "input: " << input << "\n";
+
   // get input dimension from the input tensor metadata
   // assuming one input only
   TfLiteIntArray* dims = interpreter->tensor(input)->dims;
@@ -226,84 +235,9 @@ void RunInference(Settings* s) {
   int wanted_width = dims->data[2];
   int wanted_channels = dims->data[3];
 
-  switch (interpreter->tensor(input)->type) {
-    case kTfLiteFloat32:
-      s->input_floating = true;
-      resize<float>(interpreter->typed_tensor<float>(input), in.data(),
-                    image_height, image_width, image_channels, wanted_height,
-                    wanted_width, wanted_channels, s);
-      break;
-    case kTfLiteUInt8:
-      resize<uint8_t>(interpreter->typed_tensor<uint8_t>(input), in.data(),
-                      image_height, image_width, image_channels, wanted_height,
-                      wanted_width, wanted_channels, s);
-      break;
-    default:
-      LOG(FATAL) << "cannot handle input type "
-                 << interpreter->tensor(input)->type << " yet";
-      exit(-1);
-  }
-
   auto profiler =
       absl::make_unique<profiling::Profiler>(s->max_profiling_buffer_entries);
   interpreter->SetProfiler(profiler.get());
-
-  if (s->profiling) profiler->StartProfiling();
-  if (s->loop_count > 1)
-    for (int i = 0; i < s->number_of_warmup_runs; i++) {
-      if (interpreter->Invoke() != kTfLiteOk) {
-        LOG(FATAL) << "Failed to invoke tflite!\n";
-      }
-    }
-
-  struct timeval start_time, stop_time;
-  gettimeofday(&start_time, nullptr);
-  for (int i = 0; i < s->loop_count; i++) {
-    if (interpreter->Invoke() != kTfLiteOk) {
-      LOG(FATAL) << "Failed to invoke tflite!\n";
-    }
-  }
-  gettimeofday(&stop_time, nullptr);
-  LOG(INFO) << "invoked \n";
-  LOG(INFO) << "average time: "
-            << (get_us(stop_time) - get_us(start_time)) / (s->loop_count * 1000)
-            << " ms \n";
-
-  if (s->profiling) {
-    profiler->StopProfiling();
-    auto profile_events = profiler->GetProfileEvents();
-    for (int i = 0; i < profile_events.size(); i++) {
-      auto op_index = profile_events[i]->event_metadata;
-      const auto node_and_registration =
-          interpreter->node_and_registration(op_index);
-      const TfLiteRegistration registration = node_and_registration->second;
-      PrintProfilingInfo(profile_events[i], op_index, registration);
-    }
-  }
-
-  const float threshold = 0.001f;
-
-  std::vector<std::pair<float, int>> top_results;
-
-  int output = interpreter->outputs()[0];
-  TfLiteIntArray* output_dims = interpreter->tensor(output)->dims;
-  // assume output dims to be something like (1, 1, ... ,size)
-  auto output_size = output_dims->data[output_dims->size - 1];
-  switch (interpreter->tensor(output)->type) {
-    case kTfLiteFloat32:
-      get_top_n<float>(interpreter->typed_output_tensor<float>(0), output_size,
-                       s->number_of_results, threshold, &top_results, true);
-      break;
-    case kTfLiteUInt8:
-      get_top_n<uint8_t>(interpreter->typed_output_tensor<uint8_t>(0),
-                         output_size, s->number_of_results, threshold,
-                         &top_results, false);
-      break;
-    default:
-      LOG(FATAL) << "cannot handle output type "
-                 << interpreter->tensor(input)->type << " yet";
-      exit(-1);
-  }
 
   std::vector<string> labels;
   size_t label_count;
@@ -311,10 +245,104 @@ void RunInference(Settings* s) {
   if (ReadLabelsFile(s->labels_file_name, &labels, &label_count) != kTfLiteOk)
     exit(-1);
 
-  for (const auto& result : top_results) {
-    const float confidence = result.first;
-    const int index = result.second;
-    LOG(INFO) << confidence << ": " << index << " " << labels[index] << "\n";
+  std::vector<string> images;
+  if (!s->input_images_file_name.empty()) {
+    if (ReadImagesFile(s->input_images_file_name, &images) != kTfLiteOk) {
+      exit(-1);
+    }
+  } else {
+    // Single image mode.
+    images.emplace_back(s->input_bmp_name);
+  }
+
+  for (const auto& image : images) {
+    int image_width = 224;
+    int image_height = 224;
+    int image_channels = 3;
+
+    std::vector<uint8_t> in = read_bmp(image, &image_width,
+                                       &image_height, &image_channels, s);
+
+    switch (interpreter->tensor(input)->type) {
+      case kTfLiteFloat32:
+        s->input_floating = true;
+        resize<float>(interpreter->typed_tensor<float>(input), in.data(),
+                      image_height, image_width, image_channels, wanted_height,
+                      wanted_width, wanted_channels, s);
+        break;
+      case kTfLiteUInt8:
+        resize<uint8_t>(interpreter->typed_tensor<uint8_t>(input), in.data(),
+                        image_height, image_width, image_channels, wanted_height,
+                        wanted_width, wanted_channels, s);
+        break;
+      default:
+        LOG(FATAL) << "cannot handle input type "
+                   << interpreter->tensor(input)->type << " yet";
+        exit(-1);
+    }
+
+    if (s->profiling) profiler->StartProfiling();
+    if (s->loop_count > 1)
+      for (int i = 0; i < s->number_of_warmup_runs; i++) {
+        if (interpreter->Invoke() != kTfLiteOk) {
+          LOG(FATAL) << "Failed to invoke tflite!\n";
+        }
+      }
+
+    struct timeval start_time, stop_time;
+    gettimeofday(&start_time, nullptr);
+    for (int i = 0; i < s->loop_count; i++) {
+      if (interpreter->Invoke() != kTfLiteOk) {
+        LOG(FATAL) << "Failed to invoke tflite!\n";
+      }
+    }
+    gettimeofday(&stop_time, nullptr);
+    LOG(INFO) << "invoked \n";
+    LOG(INFO) << "average time: "
+              << (get_us(stop_time) - get_us(start_time)) / (s->loop_count * 1000)
+              << " ms \n";
+
+    if (s->profiling) {
+      profiler->StopProfiling();
+      auto profile_events = profiler->GetProfileEvents();
+      for (int i = 0; i < profile_events.size(); i++) {
+        auto op_index = profile_events[i]->event_metadata;
+        const auto node_and_registration =
+            interpreter->node_and_registration(op_index);
+        const TfLiteRegistration registration = node_and_registration->second;
+        PrintProfilingInfo(profile_events[i], op_index, registration);
+      }
+    }
+
+    const float threshold = 0.001f;
+
+    std::vector<std::pair<float, int>> top_results;
+
+    int output = interpreter->outputs()[0];
+    TfLiteIntArray* output_dims = interpreter->tensor(output)->dims;
+    // assume output dims to be something like (1, 1, ... ,size)
+    auto output_size = output_dims->data[output_dims->size - 1];
+    switch (interpreter->tensor(output)->type) {
+      case kTfLiteFloat32:
+        get_top_n<float>(interpreter->typed_output_tensor<float>(0), output_size,
+                         s->number_of_results, threshold, &top_results, true);
+        break;
+      case kTfLiteUInt8:
+        get_top_n<uint8_t>(interpreter->typed_output_tensor<uint8_t>(0),
+                           output_size, s->number_of_results, threshold,
+                           &top_results, false);
+        break;
+      default:
+        LOG(FATAL) << "cannot handle output type "
+                   << interpreter->tensor(input)->type << " yet";
+        exit(-1);
+    }
+
+    for (const auto& result : top_results) {
+      const float confidence = result.first;
+      const int index = result.second;
+      LOG(INFO) << confidence << ": " << index << " " << labels[index] << "\n";
+    }
   }
 }
 
@@ -328,7 +356,8 @@ void display_usage() {
       << "--gl_backend, -g: use GL GPU Delegate on Android\n"
       << "--input_mean, -b: input mean\n"
       << "--input_std, -s: input standard deviation\n"
-      << "--image, -i: image_name.bmp\n"
+      << "--image, -i: path to single input image, e.g. image_name.bmp\n"
+      << "--images, -j: path to text file containing input image paths\n"
       << "--labels, -l: labels for the model\n"
       << "--tflite_model, -m: model_name.tflite\n"
       << "--profiling, -p: [0|1], profiling or not\n"
@@ -351,6 +380,7 @@ int Main(int argc, char** argv) {
         {"count", required_argument, nullptr, 'c'},
         {"verbose", required_argument, nullptr, 'v'},
         {"image", required_argument, nullptr, 'i'},
+        {"images", required_argument, nullptr, 'j'},
         {"labels", required_argument, nullptr, 'l'},
         {"tflite_model", required_argument, nullptr, 'm'},
         {"profiling", required_argument, nullptr, 'p'},
@@ -402,6 +432,9 @@ int Main(int argc, char** argv) {
         break;
       case 'i':
         s.input_bmp_name = optarg;
+        break;
+      case 'j':
+        s.input_images_file_name = optarg;
         break;
       case 'l':
         s.labels_file_name = optarg;

@@ -16,8 +16,8 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_EXAMPLES_LABEL_IMAGE_LABEL_IMAGE_H_
 #define TENSORFLOW_LITE_EXAMPLES_LABEL_IMAGE_LABEL_IMAGE_H_
 
-#include "tensorflow/lite/model.h"
-#include "tensorflow/lite/string_type.h"
+#include "third_party/tensorflow/lite/model.h"
+#include "third_party/tensorflow/lite/string_type.h"
 
 namespace tflite {
 namespace label_image {
@@ -36,6 +36,7 @@ struct Settings {
   string model_name = "./mobilenet_quant_v1_224.tflite";
   tflite::FlatBufferModel* model;
   string input_bmp_name = "./grace_hopper.bmp";
+  string input_images_file_name = "";
   string labels_file_name = "./labels.txt";
   string input_layer_type = "uint8_t";
   int number_of_threads = 4;
