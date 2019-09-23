@@ -16,17 +16,20 @@ pip install future --user
 
 ## Build the example
 
-First run `$TENSORFLOW_ROOT/configure`. To build for Android, set
-Android NDK or configure NDK setting in
-`$TENSORFLOW_ROOT/WORKSPACE` first.
-
-Build it for desktop machines (tested on Ubuntu and OS X):
+To build for desktop machines (tested on Ubuntu and OS X), first run `$TENSORFLOW_ROOT/configure`, then:
 
 ```
 bazel build --cxxopt=-std=c++11 //tensorflow/lite/examples/label_image:label_image
 ```
 
-Build it for Android ARMv8:
+To build for Android, install the Android SDK and the [Android NDK](https://developer.android.com/ndk/downloads). Make sure the environment variables `ANDROID_HOME` and `ANDROID_NDK_HOME` point to the Android SDK and NDK, respectively. Then, add the following lines to `$TENSORFLOW_ROOT/WORKSPACE`:
+
+```
+android_sdk_repository(name="android_sdk")
+android_ndk_repository(name="android_ndk")
+```
+
+Build the example for Android ARMv8:
 
 ```
 bazel build --config monolithic --cxxopt=-std=c++11 \
