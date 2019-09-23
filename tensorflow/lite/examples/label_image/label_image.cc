@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "third_party/tensorflow/lite/examples/label_image/label_image.h"
+#include "tensorflow/lite/examples/label_image/label_image.h"
 
 #include <fcntl.h>      // NOLINT(build/include_order)
 #include <getopt.h>     // NOLINT(build/include_order)
@@ -35,15 +35,15 @@ limitations under the License.
 #include <unordered_set>
 #include <vector>
 
-#include "third_party/absl/memory/memory.h"
-#include "third_party/tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
-#include "third_party/tensorflow/lite/examples/label_image/bitmap_helpers.h"
-#include "third_party/tensorflow/lite/examples/label_image/get_top_n.h"
-#include "third_party/tensorflow/lite/kernels/register.h"
-#include "third_party/tensorflow/lite/optional_debug_tools.h"
-#include "third_party/tensorflow/lite/profiling/profiler.h"
-#include "third_party/tensorflow/lite/string_util.h"
-#include "third_party/tensorflow/lite/tools/evaluation/utils.h"
+#include "absl/memory/memory.h"
+#include "tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
+#include "tensorflow/lite/examples/label_image/bitmap_helpers.h"
+#include "tensorflow/lite/examples/label_image/get_top_n.h"
+#include "tensorflow/lite/kernels/register.h"
+#include "tensorflow/lite/optional_debug_tools.h"
+#include "tensorflow/lite/profiling/profiler.h"
+#include "tensorflow/lite/string_util.h"
+#include "tensorflow/lite/tools/evaluation/utils.h"
 
 #define LOG(x) std::cerr
 
